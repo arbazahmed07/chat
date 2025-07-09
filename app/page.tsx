@@ -106,23 +106,24 @@ export default function ChatPage() {
                   {msg.content}
                 </div>
               )}
-              {msg.results && (
-                <ul className="space-y-2">
-                  {msg.results.map((r, idx) => (
-                    <li key={idx} className="border-b pb-1">
-                      <a
-                        href={r.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-blue-600 hover:underline"
-                      >
-                        {r.title}
-                      </a>
-                      <p className="text-sm text-gray-700">{r.snippet}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {msg.results && msg.content === undefined && (
+  <ul className="space-y-2">
+    {msg.results.map((r, idx) => (
+      <li key={idx} className="border-b pb-1">
+        <a
+          href={r.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-blue-600 hover:underline"
+        >
+          {r.title}
+        </a>
+        <p className="text-sm text-gray-700">{r.snippet}</p>
+      </li>
+    ))}
+  </ul>
+)}
+
             </div>
           )
         )}

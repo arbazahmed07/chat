@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateText, tool ,ToolExecutionOptions } from 'ai';
+import { generateText, tool, ToolExecutionOptions } from 'ai';
 import { google } from '@ai-sdk/google';
 import axios from 'axios';
 import { z } from 'zod';
@@ -40,7 +40,7 @@ const searchNews = tool({
           engine: 'google',
         },
       });
-      
+
       const results = (resp.data.organic_results || [])
         .slice(0, 5)
         .map((r: SerpApiResult) => ({
@@ -48,7 +48,7 @@ const searchNews = tool({
           link: r.link,
           snippet: r.snippet,
         }));
-      
+
       return { results, source: 'serp' };
     } catch (error) {
       console.error('SerpAPI request failed:', error);
@@ -65,26 +65,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing query' }, { status: 400 });
   }
 
-  // 1) Pre-check for newsy terms:
+  // Keyword check: skip Gemini if clearly news-related
   const newsKeywords = [
-    'news', 'update', 'latest', 'today', 'recent', 'winner', 'score', 'result'
+    'news', 'update', 'latest', 'today', 'recent', 'winner', 'score', 'result', 'who won'
   ];
-  const isNews = newsKeywords.some((w) =>
-    query.toLowerCase().includes(w)
-  );
+  const isNews = newsKeywords.some((w) => query.toLowerCase().includes(w));
 
-  // 2) If it's a news query, call SerpAPI directly:
   if (isNews) {
     try {
       const { results } = await searchNews.execute({ query }, {} as ToolExecutionOptions);
-      return NextResponse.json({ source: 'serp', results });
+     return NextResponse.json({
+  source: 'serp-direct',
+  response: results.map((r) => `🔹 ${r.title}\n${r.link}`).join('\n\n'),
+});
+
     } catch (error) {
       console.error('Direct SerpAPI error:', error);
       return NextResponse.json({ error: 'Failed to fetch news' }, { status: 500 });
     }
   }
 
-  // 3) Otherwise, let Gemini answer (with tool available if still needed):
+  // Let Gemini try, tool available
   try {
     const { text, toolResults } = await generateText({
       model: google('models/gemini-1.5-flash'),
@@ -92,16 +93,32 @@ export async function GET(req: NextRequest) {
       tools: { searchNews },
     });
 
-    // If Gemini ended up calling the tool:
     const used = toolResults?.[0] as ToolResult | undefined;
+
+    // If Gemini used the tool
     if (used?.toolName === 'searchNews') {
       return NextResponse.json({
-        source: 'serp',
+        source: 'serp-via-gemini',
         results: used.result.results || [],
       });
     }
 
-    // Otherwise return Gemini's text:
+    // Detect vague or outdated answers
+    const vagueResponse =
+      !text ||
+      text.trim().length < 20 ||
+      /sorry|i don'?t know|can't help/i.test(text);
+
+    const geminiAnswerIsOutdated = /\bnot have access to real-time information\b/i.test(text);
+
+    const queryIsTimeSensitive = /\b(winner|who won|score|result|today|latest|update|news)\b/i.test(query);
+
+    if (vagueResponse || geminiAnswerIsOutdated || queryIsTimeSensitive) {
+      const { results } = await searchNews.execute({ query }, {} as ToolExecutionOptions);
+      return NextResponse.json({ source: 'serp-fallback', results });
+    }
+
+    // Else return Gemini’s response
     return NextResponse.json({ source: 'gemini', response: text });
   } catch (error) {
     console.error('Gemini error:', error);
